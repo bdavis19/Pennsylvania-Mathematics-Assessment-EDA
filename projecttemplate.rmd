@@ -1,0 +1,444 @@
+EDA of Pennsylvania School Assessments 2015-2016 by Barry Davis
+========================================================
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, packages}
+# Load all of the packages that you end up using in your analysis in this code
+# chunk.
+
+# Notice that the parameter "echo" was set to FALSE for this code chunk. This
+# prevents the code from displaying in the knitted HTML output. You should set
+# echo=FALSE for all code chunks in your file, unless it makes sense for your
+# report to show the code that generated a particular plot.
+
+# The other parameters for "message" and "warning" should also be set to FALSE
+# for other code chunks once you have verified that each plot comes out as you
+# want it to. This will clean up the flow of your report.
+
+# Environment
+library(tidyverse)
+library(gridExtra)
+library(psych)
+library(ggthemes)
+library(GGally)
+```
+
+```{r echo=FALSE, Load_the_Data}
+#Get the data
+math <- read.csv("math.csv", stringsAsFactors = FALSE)
+```
+
+# Overview
+
+This report explores a dataset containing school district level data on the 
+academic achievement results of state assessments in mathematics. We will be 
+focusing on Pennsylvania.
+
+[Source](https://catalog.data.gov/dataset/consolidated-state-performance-report-201112/resource/4da8f9de-d265-4e2f-b321-f180052df3f7)
+
+# Univariate Plots Section
+
+> **Tip**: In this section, you should perform some preliminary exploration of
+your dataset. Run some summaries of the data and create univariate plots to
+understand the structure of the individual variables in your dataset. Don't
+forget to add a comment after each plot or closely-related group of plots!
+There should be multiple code chunks and text sections; the first one below is
+just to help you get started.
+
+```{r echo=FALSE, Univariate_Plots}
+# Limit data to PA
+math.pa <- math %>% filter(STNAM=="PENNSYLVANIA")
+
+# Str
+str(math.pa)
+```
+
+We'll need to reshape this data to work with it. Many of the columns represent a
+grade level and race (or collection of races) of the students. We will keep only 
+the records that represent all students, not divided by race. Then we will reshape 
+it for easier comparisons.
+
+```{r warning=FALSE}
+# Keep "ALL" as to only look at districts, not race.
+math.pa <- math.pa %>% select(leanm11,starts_with("ALL"))
+
+# Rename
+names(math.pa) <- c("district","all_num","all_pct_m","3_num_m","3_pct_m",
+                    "4_num_m","4_pct_m","5_num_m","5_pct_m","6_num_m","6_pct_m","7_num_m",
+                    "7_pct_m","8_num_m","8_pct_m","hs_num_m","hs_pct_m")
+
+# Lowercase for easier comparisons
+math.pa$district <- tolower(math.pa$district)
+
+
+# Split data to stitch together later
+math.pa.percent <- math.pa[,c(1,3,5,7,9,11,13,15,17)]
+math.pa.num <- math.pa[,c(1,2,4,6,8,10,12,14,16)]
+
+# Rename columns for easy merging
+names(math.pa.percent) <- c("district", "all", "third", "fourth", "fifth", "sixth",
+                    "seventh", "eighth", "high school")
+names(math.pa.num) <- c("district", "all", "third", "fourth", "fifth", "sixth",
+                            "seventh", "eighth", "high school")
+
+# Reshape the data
+math.pa.percent <- gather(math.pa.percent, "grade", "percent", c(2:9))
+math.pa.num <- gather(math.pa.num, "grade", "num_students", c(2:9))
+
+# Merge everything together
+pa.math <- merge(math.pa.percent, math.pa.num, by = c("district", "grade"), all.x=TRUE)
+
+# Clean up some un-needed space
+rm(math.pa.num, math.pa.percent)
+
+# Get rid of identifiers
+pa.math$percent <- gsub("GE", "", pa.math$percent)
+pa.math$percent <- gsub("LE", "", pa.math$percent)
+
+# Split up percent into high and low columns incase of ranges.
+pa.math$low <- NA
+pa.math$high <- NA
+pa.math <- pa.math %>% separate(percent, c("low", "high"))
+pa.math[pa.math$low=="",]$low <- NA
+pa.math[is.na(pa.math$high),]$high <- pa.math[is.na(pa.math$high),]$low
+pa.math$low <- as.numeric(pa.math$low)
+pa.math$high <- as.numeric(pa.math$high)
+
+# Add an average for the range
+pa.math$avg_pct <- (pa.math$low + pa.math$high)/2
+
+# Factors for grade levels
+pa.math$grade <- as.factor(pa.math$grade)
+
+# Summary
+summary(pa.math)
+```
+
+The data was reshaped so we now have 3992 rows and 6 variables. Each observation
+represents a grade level from a school district. We have the number of students 
+who were assessed, the low and high scores (for schools that report in ranges), 
+and the average score of the range.
+
+```{r warning=FALSE}
+# Distribution of low scores
+ggplot(pa.math, aes(x=low)) +
+  geom_histogram(binwidth=1)
+```
+
+```{r warning=FALSE}
+
+# Distribution of high scores
+ggplot(pa.math, aes(x=high)) +
+  geom_histogram(binwidth=1)
+```
+
+```{r warning=FALSE}
+# Distribution of average scores
+ggplot(pa.math, aes(x=avg_pct)) +
+  geom_histogram(binwidth=1)
+```
+
+```{r}
+summary(pa.math$avg_pct)
+```
+
+The above scores aren't grouped by grade, so these numbers represent all scores of all grades
+ from all school districts in Pennsylvania.
+
+```{r warning=FALSE, message=FALSE}
+# Distribution of number of students
+ggplot(pa.math, aes(x=num_students)) +
+  geom_histogram() +
+  coord_cartesian(xlim=c(0,15000))
+```
+
+```{r warning=FALSE}
+# Better bins
+ggplot(pa.math, aes(x=num_students)) +
+  geom_histogram(binwidth=50) +
+  coord_cartesian(xlim=c(0,15000))
+```
+
+I plotted the second graph to get a better insight into the distribution of those 
+schools with under 5000 students. Most are well under 1200.
+
+# Univariate Analysis
+
+### What is the structure of your dataset?
+
+There are `r unique(pa.math$district) %>% length()` school districts. Each district 
+has `r unique(pa.math$grade) %>% length()` grade levels that were tested, giving 
+us `r nrow(pa.math)` total rows or observations. The variable grade is a factor 
+with the following levels:
+* `r levels(pa.math$grade)`
+
+### What is/are the main feature(s) of interest in your dataset?
+
+The main features here are average percent proficiency and grade.
+
+### What other features in the dataset do you think will help support your \
+investigation into your feature(s) of interest?
+
+I believe district will be a factor in scores. I think we will see scores that 
+are consistent within a district.
+
+### Did you create any new variables from existing variables in the dataset?
+
+I created the grade, low, high, num_students, and avg_pct variables. The grade 
+and num_students were created by reshaping the data and condensing the columns 
+into row values. Some of these scores were ranges, so I split the range into a 
+low and high score, then calculated the range average for avg_pct.
+
+### Of the features you investigated, were there any unusual distributions? \
+Did you perform any operations on the data to tidy, adjust, or change the form \
+of the data? If so, why did you do this?
+
+The number of students distribution was skewed to the right as a few schools had 
+a very large number of students. I created a second plot of that distribution to
+ get a better look at the number of students in districts under 5000 students.
+
+
+# Bivariate Plots Section
+
+```{r echo=FALSE, Bivariate_Plots, message=FALSE, warning=FALSE}
+# Scatterplot matrix
+ggpairs(subset(pa.math, !is.na(low) & !is.na(high)) %>% select(-district))
+```
+
+```{r warning=FALSE}
+# Do we see any pattern from 5000ft view?
+ggplot(pa.math, aes(x=avg_pct, y=num_students)) +
+  geom_point(alpha=.5)
+```
+
+Let's remove the outlier and get a better look.
+
+```{r warning=FALSE}
+# Same plot, removed outlier
+ggplot(subset(pa.math, num_students < 60000), aes(x=avg_pct, y=num_students)) +
+  geom_point(alpha=1/20)
+```
+
+So it doesn't appear there's a correlation with number of students and average 
+proficiency, but let's take a look by grade to make sure there aren't underlying
+ patterns.
+
+```{r warning=FALSE}
+# Size for high schools
+ggplot(pa.math %>% filter(grade=="high school"), aes(x=avg_pct, y=num_students)) +
+  geom_col()
+```
+
+```{r warning=FALSE, message=FALSE}
+# Size for high schools
+ggplot(pa.math, aes(x=grade, y=avg_pct)) +
+  geom_col() +
+  scale_x_discrete(limits = c("third", "fourth", "fifth", "sixth", "seventh", "eighth", "high school", "all"))
+```
+
+# Bivariate Analysis
+
+### Talk about some of the relationships you observed in this part of the \
+investigation. How did the feature(s) of interest vary with other features in \
+the dataset?
+
+The set only has limited features, there was no variation.
+
+### Did you observe any interesting relationships between the other features \
+(not the main feature(s) of interest)?
+
+There weren't many features outside of the main ones to be used.
+
+### What was the strongest relationship you found?
+
+There was no great relationship, so the strongest was number of students. However, 
+this was not a good indicator of proficiency.
+
+# Multivariate Plots Section
+
+```{r}
+# Let's see the top 25% districts overall, and look for correlations in number 
+# of students and scores
+p <- pa.math %>% filter(grade=="all", avg_pct > quantile(pa.math$avg_pct, 
+                                                         probs=.75, na.rm=TRUE))
+ggplot(p, aes(x=district, y=avg_pct, size=num_students)) +
+  geom_point(alpha=.5) +
+  theme(axis.text.y = element_text(size=7)) +
+  coord_flip()
+```
+
+This is the top 25% for overall proficiency average. The number of students, or 
+size of the school doesn't seem to correlate well with average proficiency for 
+the top schools.
+
+```{r warning=FALSE}
+# Let's see this by grade level, filtering down even further to less than 5000
+# students
+p <- pa.math %>% filter(num_students < 5000, !is.na(avg_pct))
+ggplot(p, aes(x=avg_pct, y=num_students)) +
+  geom_point(alpha=1/10) +
+  facet_wrap(~grade)
+```
+
+```{r}
+# Random sample to look for any patterns by district and grade level
+set.seed(1979)
+sampleDistricts <- sample(pa.math$district, 20, replace=FALSE)
+pa.math.samp <- pa.math %>% filter(district %in% sampleDistricts)
+ggplot(pa.math.samp, aes(x=grade, y=avg_pct)) +
+  geom_col() +
+  facet_wrap(~district) +
+  scale_x_discrete(limits = c("third", "fourth", "fifth", "sixth", "seventh", 
+                              "eighth", "high school", "all")) +
+  theme(axis.text.x = element_text(angle=90))
+```
+
+No patterns in scores within a district in a random sample.
+
+```{r}
+# What about the top 20 overall schools?
+top20 <- pa.math %>% filter(grade=="all") %>% 
+  arrange(desc(avg_pct)) %>% head(20)
+p <- pa.math %>% filter(district %in% top20$district)
+ggplot(p, aes(x=grade, y=avg_pct)) +
+  geom_col() +
+  facet_wrap(~district) +
+  scale_x_discrete(limits = c("third", "fourth", "fifth", "sixth", "seventh", 
+                              "eighth", "high school", "all")) +
+  theme(axis.text.x = element_text(angle=90))
+```
+
+```{r}
+# Bottom 20 schools
+bottom20 <- pa.math %>% filter(grade=="all") %>% arrange(avg_pct) %>% head(20)
+p <- pa.math %>% filter(district %in% bottom20$district)
+ggplot(p, aes(x=grade, y=avg_pct)) +
+  geom_col() +
+  facet_wrap(~district) +
+  scale_x_discrete(limits = c("third", "fourth", "fifth", "sixth", "seventh", "eighth", "high school", "all")) +
+  theme(axis.text.x = element_text(angle=90))
+```
+
+# Multivariate Analysis
+
+### Talk about some of the relationships you observed in this part of the \
+investigation. Were there features that strengthened each other in terms of \
+looking at your feature(s) of interest?
+
+The proficiency throughout each grade in a given district varies from school to 
+school. There seems to be a dip in the high school scores, which could be due to 
+a larger student base compared to each individual grade, the variety of math 
+being taught (and understood), and the length of time since using the math skills 
+that are assessed. We would need to know more about the assessment.
+
+### Were there any interesting or surprising interactions between features?
+
+No, these were fairly expected. I did think each district would have more consistency 
+from grade to grade. The top 20 did have very high scores across the board. 
+
+### OPTIONAL: Did you create any models with your dataset? Discuss the \
+strengths and limitations of your model.
+
+I did not create any models as it would not make sense to do so with this data.
+
+------
+
+# Final Plots and Summary
+
+### Plot One
+```{r echo=FALSE, Plot_One}
+# Let's see the top 25% districts overall, and look for correlations in number 
+# of students and scores
+p <- pa.math %>% filter(grade=="all", avg_pct > quantile(pa.math$avg_pct, 
+                                                         probs=.75, na.rm=TRUE))
+p <- pa.math %>% filter(district %in% p$district)
+ggplot(p, aes(x=district, y=avg_pct, size=num_students, color=grade)) +
+  geom_point(alpha=.5) +
+  theme_set(theme_grey()) +
+  theme(axis.text.y = element_text(size=7)) +
+  coord_flip() +
+  scale_color_brewer(palette = "Set1", name="Grade") +
+  scale_size(name="Number of Students") +
+  labs(title="Top 25% School Districts Average Proficiency", 
+       subtitle="By Grade Level and Number of Students",
+       x="School DIstrict",y="Average Proficiency")
+```
+
+### Description One
+
+There doesn't appear to be many patterns here. The high school scores are some 
+of the lowest and we see some grouping of fourth grade around the 95 percentile. 
+I used this because if a school has a high overall score, perhaps it can be 
+related to the number of students in their district.
+
+### Plot Two
+```{r echo=FALSE, Plot_Two, fig.width=9}
+# What about the top 20 overall schools?
+top20 <- pa.math %>% filter(grade=="all") %>% 
+  arrange(desc(avg_pct)) %>% head(20)
+p <- pa.math %>% filter(district %in% top20$district)
+ggplot(p, aes(x=grade, y=avg_pct)) +
+  geom_col() +
+  facet_wrap(~district) +
+  scale_x_discrete(limits = c("third", "fourth", "fifth", "sixth", "seventh", 
+                              "eighth", "high school", "all")) +
+  theme_set(theme_foundation()) +
+  theme(axis.text.x = element_text(angle=90)) +
+  labs(title="Top 20 Schools Average Proficiency by Grade",
+       x="Grade Level", y="Average Proficiency")
+```
+
+### Description Two
+
+The averages across all grades in these top districts are fairly consistent. 
+We do see the drop off in scores in the high school grade levels for most of the 
+districts. I wanted to see the top schools and whether they were consistent 
+throughout each grade level. It does not appear that one grade level is skewing 
+any others. This can be for a number of reasons, like hiring good teachers, 
+calibrating teachers on what's being taught, or a large emphasis on taking 
+(and studying for) assessment tests.
+
+### Plot Three
+```{r echo=FALSE, Plot_Three, fig.width=9}
+# Bottom 20 schools
+bottom20 <- pa.math %>% filter(grade=="all") %>% arrange(avg_pct) %>% head(20)
+p <- pa.math %>% filter(district %in% bottom20$district)
+ggplot(p, aes(x=grade, y=avg_pct)) +
+  geom_col() +
+  facet_wrap(~district) +
+  scale_x_discrete(limits = c("third", "fourth", "fifth", "sixth", "seventh", "eighth", "high school", "all")) +
+  theme_set(theme_foundation()) +
+  theme(axis.text.x = element_text(angle=90)) +
+  labs(title="Bottom 20 Schools Average Proficiency by Grade",
+       x="Grade Level", y="Average Proficiency")
+```
+
+### Description Three
+
+The bottom schools do not have much consistency across grade levels with a few 
+exceptions. Wilkinsburg Borough has a very poor proficiency for high school. If 
+the top schools were consistent, I wondered if the bottom schools would show any
+consistency. The scores here fluctuate from grade to grade, most of which remains 
+below a passing level.
+
+------
+
+# Reflection
+
+The scores within a school district are often less consistent across grade levels 
+than I originally anticipated. As someone who grew up in Pennsylvania, it is a bit 
+disheartening to see how poor some of our school districts are in mathematics. 
+
+There was a lot of reshaping and cleaning that needed to be done for this dataset. 
+I stumbled on the two applications of gather() as well as figuring out how to 
+separate a field if I was only interested in one of the returned values.
+
+Future work with this dataset can look at some other information such as taxes. 
+It would be interesting to see how each school district performs in relation to 
+how much school tax they collect. This would help us see what the residents get 
+for their hard earned money. We may be able to look at census data as well for 
+median household income to see if that plays a role. Information on Facebook 
+would be very interesting if paired with this data. For example, we could look at 
+current professions and see what the graduates of these schools are doing.
+Would we see more STEM professions from the top districts? What about secondary 
+education? How many of the graduates go on to secondary education from the top 
+schools versus the bottom schools? 
