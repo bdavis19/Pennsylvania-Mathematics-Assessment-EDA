@@ -1,4 +1,4 @@
-EDA of Pennsylvania School Assessments 2015-2016 by Barry Davis
+EDA of Pennsylvania Mathematics Assessments 2011-2012 by Barry Davis
 ========================================================
 
 ```{r echo=FALSE, message=FALSE, warning=FALSE, packages}
@@ -18,13 +18,15 @@ EDA of Pennsylvania School Assessments 2015-2016 by Barry Davis
 library(tidyverse)
 library(gridExtra)
 library(psych)
+library(scales)
 library(ggthemes)
 library(GGally)
+knitr::opts_chunk$set(echo=FALSE)
 ```
 
 ```{r echo=FALSE, Load_the_Data}
 #Get the data
-math <- read.csv("math.csv", stringsAsFactors = FALSE)
+math <- read.csv("data/math.csv", stringsAsFactors = FALSE)
 ```
 
 # Overview
@@ -36,13 +38,6 @@ focusing on Pennsylvania.
 [Source](https://catalog.data.gov/dataset/consolidated-state-performance-report-201112/resource/4da8f9de-d265-4e2f-b321-f180052df3f7)
 
 # Univariate Plots Section
-
-> **Tip**: In this section, you should perform some preliminary exploration of
-your dataset. Run some summaries of the data and create univariate plots to
-understand the structure of the individual variables in your dataset. Don't
-forget to add a comment after each plot or closely-related group of plots!
-There should be multiple code chunks and text sections; the first one below is
-just to help you get started.
 
 ```{r echo=FALSE, Univariate_Plots}
 # Limit data to PA
@@ -121,45 +116,76 @@ and the average score of the range.
 ```{r warning=FALSE}
 # Distribution of low scores
 ggplot(pa.math, aes(x=low)) +
-  geom_histogram(binwidth=1)
+  geom_histogram(binwidth=5) +
+  scale_x_continuous(breaks=seq(0,100,10))
 ```
+
+We look at the scores including the low value of those with ranges here. We can 
+see that the distribution is left skewed and peaks around 80%. It's also 
+notable how it steeply drops off just after 90%.
 
 ```{r warning=FALSE}
 
 # Distribution of high scores
 ggplot(pa.math, aes(x=high)) +
-  geom_histogram(binwidth=1)
+  geom_histogram(binwidth=5) +
+  scale_x_continuous(breaks=seq(0,100,10))
 ```
+
+These are the scores including the high value of those with ranges. I expected 
+the distribution to not be dramatically different than the previous plot. I do 
+see that the steep dropoff just after 90% is gone here due to using the higher 
+value of the ranges. We also peak much closer to 90% than previously.
 
 ```{r warning=FALSE}
 # Distribution of average scores
 ggplot(pa.math, aes(x=avg_pct)) +
-  geom_histogram(binwidth=1)
+  geom_histogram(binwidth=5) +
+  scale_x_continuous(breaks=seq(0,100,10))
 ```
+
+This is probably our best representation of the scores, as we are using the 
+individual scores plus the mean of any available ranges. We peak around 85%, but 
+see that steep dropoff again just after 90%.
 
 ```{r}
-summary(pa.math$avg_pct)
+tapply(pa.math$avg_pct, pa.math$grade, summary)
 ```
 
-The above scores aren't grouped by grade, so these numbers represent all scores of all grades
- from all school districts in Pennsylvania.
+These summarize the avg_pct variable by grade level. We can see that out high 
+school assessments are our worst, and our fourth grade assessments are our best. 
+The IQR of high school scores is very low too. It would be interesting to see 
+what other data sources could help explain this.
 
 ```{r warning=FALSE, message=FALSE}
 # Distribution of number of students
 ggplot(pa.math, aes(x=num_students)) +
-  geom_histogram() +
-  coord_cartesian(xlim=c(0,15000))
+  geom_histogram()
 ```
 
-```{r warning=FALSE}
+We will need to remove some outliers from this.
+
+```{r}
 # Better bins
 ggplot(pa.math, aes(x=num_students)) +
   geom_histogram(binwidth=50) +
   coord_cartesian(xlim=c(0,15000))
 ```
 
-I plotted the second graph to get a better insight into the distribution of those 
-schools with under 5000 students. Most are well under 1200.
+While we've zoomed in quite a bit, we still don't have a great representation 
+of our data. Let's apply a log10 scale.
+
+```{r warning=FALSE}
+# Better bins
+ggplot(pa.math, aes(x=num_students)) +
+  geom_histogram() +
+  scale_x_continuous(trans = "log10", 
+                     breaks=trans_breaks("log10", function(x) 10^x), 
+                     labels=trans_format("log10", math_format(10^.x)))
+```
+
+Here's a better view of our distribution of the number of students in each grade 
+level for each district.
 
 # Univariate Analysis
 
@@ -204,6 +230,11 @@ a very large number of students. I created a second plot of that distribution to
 ggpairs(subset(pa.math, !is.na(low) & !is.na(high)) %>% select(-district))
 ```
 
+Here we see the relationship between variables in the dataset. Our low, high, 
+and avg_pct are highly correlated, but that's because avg_pct is derived from 
+those values. Most of our data is not correlated - but this makes sense. We would 
+not expect grade level to have a strong relationship with scores.
+
 ```{r warning=FALSE}
 # Do we see any pattern from 5000ft view?
 ggplot(pa.math, aes(x=avg_pct, y=num_students)) +
@@ -212,28 +243,48 @@ ggplot(pa.math, aes(x=avg_pct, y=num_students)) +
 
 Let's remove the outlier and get a better look.
 
-```{r warning=FALSE}
+```{r}
 # Same plot, removed outlier
 ggplot(subset(pa.math, num_students < 60000), aes(x=avg_pct, y=num_students)) +
   geom_point(alpha=1/20)
 ```
 
+We need to remove more outliers and zoom in on the bulk of our data.
+
+```{r warning=FALSE}
+# Same plot, removed outlier
+ggplot(subset(pa.math, num_students < 5000), aes(x=avg_pct, y=num_students)) +
+  geom_point(alpha=1/20, position = position_jitter(width = 2)) +
+  scale_y_continuous(breaks=seq(0,5000,250))
+```
+
 So it doesn't appear there's a correlation with number of students and average 
-proficiency, but let's take a look by grade to make sure there aren't underlying
- patterns.
+proficiency. Let's take another closer look, but change our view.
 
 ```{r warning=FALSE}
 # Size for high schools
-ggplot(pa.math %>% filter(grade=="high school"), aes(x=avg_pct, y=num_students)) +
-  geom_col()
+ggplot(pa.math %>% filter(grade=="all", num_students<2000), aes(x=num_students, y=avg_pct)) +
+  geom_line()
 ```
 
+We can clearly see here that no pattern emerges when looking at number of students 
+and the average proficiency.
+
 ```{r warning=FALSE, message=FALSE}
-# Size for high schools
-ggplot(pa.math, aes(x=grade, y=avg_pct)) +
+# Size for grades
+p <- pa.math %>% group_by(grade) %>% 
+  summarise(grade_avg = mean(avg_pct, na.rm=TRUE)) %>% 
+  ungroup()
+ggplot(p, aes(x=grade, y=grade_avg)) +
   geom_col() +
-  scale_x_discrete(limits = c("third", "fourth", "fifth", "sixth", "seventh", "eighth", "high school", "all"))
+  scale_x_discrete(limits = c("third", "fourth", "fifth", "sixth", "seventh", 
+                              "eighth", "high school", "all"))
 ```
+
+Here we break down the average proficiency across each grade level for all 
+districts. It looks like our third, fourth, and seventh graders are the top 3 
+performers, followed closely by sixth grade. Again, we see the large dip in the 
+high school assessment scores.
 
 # Bivariate Analysis
 
@@ -260,7 +311,8 @@ this was not a good indicator of proficiency.
 # of students and scores
 p <- pa.math %>% filter(grade=="all", avg_pct > quantile(pa.math$avg_pct, 
                                                          probs=.75, na.rm=TRUE))
-ggplot(p, aes(x=district, y=avg_pct, size=num_students)) +
+p <- pa.math %>% filter(district %in% p$district)
+ggplot(p, aes(x=district, y=avg_pct, size=num_students, color=grade)) +
   geom_point(alpha=.5) +
   theme(axis.text.y = element_text(size=7)) +
   coord_flip()
@@ -275,9 +327,13 @@ the top schools.
 # students
 p <- pa.math %>% filter(num_students < 5000, !is.na(avg_pct))
 ggplot(p, aes(x=avg_pct, y=num_students)) +
-  geom_point(alpha=1/10) +
+  geom_point(alpha=1/10, position=position_jitter(width=2)) +
   facet_wrap(~grade)
 ```
+
+Here we take another look at the number of students and average proficiency and 
+break it down by grade level. There doesn't appear to be any strong relationship 
+here.
 
 ```{r}
 # Random sample to look for any patterns by district and grade level
@@ -292,7 +348,9 @@ ggplot(pa.math.samp, aes(x=grade, y=avg_pct)) +
   theme(axis.text.x = element_text(angle=90))
 ```
 
-No patterns in scores within a district in a random sample.
+This looks at the average proficiency by grade, but split amongst a random 
+sample of 20 schools. I wanted to see if and patterns would emerge with random 
+selection. 
 
 ```{r}
 # What about the top 20 overall schools?
@@ -307,6 +365,11 @@ ggplot(p, aes(x=grade, y=avg_pct)) +
   theme(axis.text.x = element_text(angle=90))
 ```
 
+Since we did not see any patterns in our random sample, I take a look at the top 
+20 schools districts. We do see some consistency here throughout each grade level 
+within the districts. We also see a repeating pattern of the high school scores 
+being lower in almost all of the above.
+
 ```{r}
 # Bottom 20 schools
 bottom20 <- pa.math %>% filter(grade=="all") %>% arrange(avg_pct) %>% head(20)
@@ -314,9 +377,15 @@ p <- pa.math %>% filter(district %in% bottom20$district)
 ggplot(p, aes(x=grade, y=avg_pct)) +
   geom_col() +
   facet_wrap(~district) +
-  scale_x_discrete(limits = c("third", "fourth", "fifth", "sixth", "seventh", "eighth", "high school", "all")) +
+  scale_x_discrete(limits = c("third", "fourth", "fifth", "sixth", "seventh", 
+                              "eighth", "high school", "all")) +
   theme(axis.text.x = element_text(angle=90))
 ```
+
+Just as there could be patterns in the top schools, it's possible there are 
+patterns in the bottom schools, so this plot looks at the bottom 20 districts. 
+We do not see any pattern throughout the grade levels of these poor performing 
+school districts.
 
 # Multivariate Analysis
 
@@ -405,7 +474,8 @@ p <- pa.math %>% filter(district %in% bottom20$district)
 ggplot(p, aes(x=grade, y=avg_pct)) +
   geom_col() +
   facet_wrap(~district) +
-  scale_x_discrete(limits = c("third", "fourth", "fifth", "sixth", "seventh", "eighth", "high school", "all")) +
+  scale_x_discrete(limits = c("third", "fourth", "fifth", "sixth", "seventh", 
+                              "eighth", "high school", "all")) +
   theme_set(theme_foundation()) +
   theme(axis.text.x = element_text(angle=90)) +
   labs(title="Bottom 20 Schools Average Proficiency by Grade",
